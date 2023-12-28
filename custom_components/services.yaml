@@ -1,0 +1,15 @@
+---
+select_hdmi_output:
+  description: "Select hdmi output."
+  target:
+    entity:
+      domain: media_player
+  fields:
+    hdmi_output:
+      description: >-
+        Known possible values are
+        no, analog, tes, out, out-sub, sub, hdbaset, both, up
+      example: "no"
+      required: true
+      selector:
+        text:
