@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import voluptuous as vol
+
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
+    MediaType,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF
@@ -177,7 +180,7 @@ class OnkyoDevice(CoordinatorEntity, MediaPlayerEntity):
         await self.coordinator.async_request_refresh()
         return result
 
-    async def async_set_volume_level(self, volume):
+    async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, input is range 0..1.
 
         However full volume on the amp is usually far too loud so allow the user to specify the upper range
@@ -190,43 +193,45 @@ class OnkyoDevice(CoordinatorEntity, MediaPlayerEntity):
             f"volume {int(volume * (self.max_volume / 100) * self.receiver_max_volume)}"
         )
 
-    async def async_volume_up(self):
+    async def async_volume_up(self) -> None:
         """Increase volume by 1 step."""
         await self.async_command("volume level-up")
 
-    async def async_volume_down(self):
+    async def async_volume_down(self) -> None:
         """Decrease volume by 1 step."""
         await self.async_command("volume level-down")
 
-    async def async_mute_volume(self, mute):
+    async def async_mute_volume(self, mute: bool) -> None:
         """Mute (true) or unmute (false) media player."""
         if mute:
             await self.async_command("audio-muting on")
         else:
             await self.async_command("audio-muting off")
 
-    async def async_turn_on(self):
+    async def async_turn_on(self) -> None:
         """Turn the media player on."""
         await self.async_command("system-power on")
 
-    async def async_turn_off(self):
+    async def async_turn_off(self) -> None:
         """Turn the media player off."""
         await self.async_command("system-power standby")
 
-    async def async_select_source(self, source):
+    async def async_select_source(self, source: str) -> None:
         """Set the input source."""
         reverse_sources = reverse_mapping(self.sources)
         if source in self.source_list:
             source = reverse_sources[source]
         await self.async_command(f"input-selector {source}")
 
-    async def async_select_sound_mode(self, sound_mode):
+    async def async_select_sound_mode(self, sound_mode: str) -> None:
         """Switch the sound mode of the entity."""
         reverse_sounds = reverse_mapping(self.sounds)
         sound_mode = reverse_sounds[sound_mode]
         await self.async_command(f"listening-mode {sound_mode}")
 
-    async def async_play_media(self, media_type, media_id, **kwargs):
+    async def async_play_media(
+        self, media_type: MediaType, media_id: str, **kwargs: Any
+    ) -> None:
         """Play radio station by preset number."""
         reverse_sources = reverse_mapping(self.sources)
         current_source = self.coordinator.data.get("current_source")
@@ -234,7 +239,7 @@ class OnkyoDevice(CoordinatorEntity, MediaPlayerEntity):
         if media_type.lower() == "radio" and source in DEFAULT_PLAYABLE_SOURCES:
             await self.async_command(f"preset {media_id}")
 
-    async def async_select_output(self, output):
+    async def async_select_output(self, output: str) -> None:
         """Set hdmi-out."""
         await self.async_command(f"hdmi-output-selector={output}")
 
@@ -242,7 +247,7 @@ class OnkyoDevice(CoordinatorEntity, MediaPlayerEntity):
 class OnkyoDeviceZone(OnkyoDevice):
     """Representation of an Onkyo device's extra zone."""
 
-    def __init__(self, coordinator: DataUpdateCoordinator, zone: str):
+    def __init__(self, coordinator: DataUpdateCoordinator, zone: str) -> None:
         """Initialize the Zone with the zone identifier."""
         super().__init__(coordinator, zone)
         self.supports_volume = True
@@ -254,7 +259,7 @@ class OnkyoDeviceZone(OnkyoDevice):
             return SUPPORT_ONKYO
         return SUPPORT_ONKYO_WO_VOLUME
 
-    async def async_set_volume_level(self, volume):
+    async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, input is range 0..1.
 
         However full volume on the amp is usually far too loud so allow the user to specify the upper range
@@ -267,37 +272,37 @@ class OnkyoDeviceZone(OnkyoDevice):
             f"{self.zone}.volume={int(volume * (self.max_volume / 100) * self.receiver_max_volume)}"
         )
 
-    async def async_volume_up(self):
+    async def async_volume_up(self) -> None:
         """Increase volume by 1 step."""
         await self.async_command(f"{self.zone}.volume=level-up")
 
-    async def async_volume_down(self):
+    async def async_volume_down(self) -> None:
         """Decrease volume by 1 step."""
         await self.async_command(f"{self.zone}.volume=level-down")
 
-    async def async_mute_volume(self, mute):
+    async def async_mute_volume(self, mute: bool) -> None:
         """Mute (true) or unmute (false) media player."""
         if mute:
             await self.async_command(f"{self.zone}.muting=on")
         else:
             await self.async_command(f"{self.zone}.muting=off")
 
-    async def async_turn_on(self):
+    async def async_turn_on(self) -> None:
         """Turn the media player on."""
         await self.async_command(f"{self.zone}.power=on")
 
-    async def async_turn_off(self):
+    async def async_turn_off(self) -> None:
         """Turn the media player off."""
         await self.async_command(f"{self.zone}.power=standby")
 
-    async def async_select_source(self, source):
+    async def async_select_source(self, source: str) -> None:
         """Set the input source."""
         reverse_sources = reverse_mapping(self.sources)
         if source in self.source_list:
             source = reverse_sources[source]
         await self.async_command(f"{self.zone}.selector={source}")
 
-    async def async_select_sound_mode(self, sound_mode):
+    async def async_select_sound_mode(self, sound_mode: str) -> None:
         """Switch the sound mode of the entity."""
         reverse_sounds = reverse_mapping(self.sounds)
         sound_mode = reverse_sounds[sound_mode]
