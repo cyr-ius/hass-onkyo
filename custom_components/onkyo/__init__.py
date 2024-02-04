@@ -1,13 +1,14 @@
 """The onkyo component."""
-import logging
+from __future__ import annotations
 
+import logging
 
 from homeassistant import config_entries
 from homeassistant.components.media_player.const import DOMAIN as media_domain
+from homeassistant.config import config_per_platform
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import config_per_platform
 
 from .const import DOMAIN, PLATFORMS
 from .coordinator import OnkyoUpdateCoordinator
