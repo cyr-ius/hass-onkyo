@@ -1,30 +1,33 @@
 """Config flow to configure onkyo component."""
+from __future__ import annotations
+
 import logging
 from urllib.parse import urlparse
 
-import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
 from eiscp import eISCP as onkyo_rcv
+import voluptuous as vol
+
 from homeassistant import config_entries
 from homeassistant.components import ssdp
 from homeassistant.components.persistent_notification import create as notify_create
 from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import callback
+import homeassistant.helpers.config_validation as cv
 
 from .const import (
     CONF_MAX_VOLUME,
     CONF_RECEIVER_MAX_VOLUME,
     CONF_SOUNDS_MODE,
     CONF_SOURCES,
-    DOMAIN,
     DEFAULT_NAME,
     DEFAULT_RECEIVER_MAX_VOLUME,
     DEFAULT_SOUNDS_MODE_SELECTED,
     DEFAULT_SOURCES_SELECTED,
+    DOMAIN,
     SUPPORTED_MAX_VOLUME,
     UNKNOWN_MODEL,
 )
-from .helpers import build_sounds_mode_list, build_sources_list, build_selected_dict
+from .helpers import build_selected_dict, build_sounds_mode_list, build_sources_list
 
 DEFAULT_SOURCES = build_sources_list()
 DEFAULT_SOUNDS_MODE = build_sounds_mode_list()

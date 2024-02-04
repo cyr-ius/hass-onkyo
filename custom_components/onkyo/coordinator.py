@@ -1,22 +1,24 @@
 """onkyo coordinators."""
 from __future__ import annotations
 
-import logging
 from datetime import timedelta
+import logging
 
 from eiscp import eISCP as onkyo_rcv
-from homeassistant.const import CONF_HOST, STATE_OFF, STATE_ON
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from homeassistant.core import HomeAssistant
+
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_HOST, STATE_OFF, STATE_ON
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+
 from .const import (
     ATTR_AUDIO_INFORMATION,
     ATTR_PRESET,
     ATTR_VIDEO_INFORMATION,
     ATTR_VIDEO_OUT,
-    CONF_SOURCES,
     CONF_MAX_VOLUME,
     CONF_RECEIVER_MAX_VOLUME,
+    CONF_SOURCES,
     DOMAIN,
     TIMEOUT_MESSAGE,
 )

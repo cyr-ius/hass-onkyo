@@ -1,4 +1,6 @@
 """Helpers to Onkyo media player."""
+from __future__ import annotations
+
 from eiscp.commands import COMMANDS
 
 
