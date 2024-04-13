@@ -78,14 +78,17 @@ class OnkyoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         """Handle a flow initialized by the user."""
         errors = {}
-        if user_input is not None:
+        if user_input:
             host = user_input[CONF_HOST]
             try:
                 receiver = onkyo_rcv(host)
+
                 await self.async_set_unique_id(receiver.identifier)
                 self._abort_if_unique_id_configured()
+
                 if receiver.model_name == UNKNOWN_MODEL:
                     errors["base"] = "receiver_unknown"
+
             except OSError as error:
                 _LOGGER.error("Unable to connect to receiver at %s (%s)", host, error)
                 errors["base"] = "cannot_connect"
