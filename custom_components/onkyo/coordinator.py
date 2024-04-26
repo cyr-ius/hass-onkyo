@@ -194,7 +194,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
         if supports_volume:
             # AMP_VOL/MAX_RECEIVER_VOL*(MAX_VOL/100)
             volume = (
-                volume_raw[1] / self._receiver_max_volume * (self._max_volume / 100)
+                volume_raw[1] / self.receiver_max_volume * (self.max_volume / 100)
             )
             datas.update({"volume": volume})
 
