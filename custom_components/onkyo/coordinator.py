@@ -51,33 +51,33 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=SCAN_INTERVAL)
 
     async def _async_update_data(self) -> dict:
-        datas = {}
+        data = {}
         try:
             main = await self.async_fetch_data()
-            datas.update({"main": main})
+            data.update({"main": main})
 
             for zone in self._determine_zones(self.receiver):
                 data = await self.async_fetch_data_zone(zone)
-                datas.update({zone: data})
+                data.update({zone: data})
 
-            return datas
+            return data
         except Exception as error:
             _LOGGER.debug(error)
             raise UpdateFailed from error
 
     async def async_fetch_data(self) -> dict:
         """Fetch all data from api."""
-        datas = {}
+        data = {}
         attributes = {}
 
         status = self.receiver.command("system-power query")
         if not status:
-            return datas
+            return data
         if status[1] == "on":
-            datas.update({"pwstate": STATE_ON})
+            data.update({"pwstate": STATE_ON})
         else:
-            datas.update({"pwstate": STATE_OFF, "attributes": attributes})
-            return datas
+            data.update({"pwstate": STATE_OFF, "attributes": attributes})
+            return data
 
         volume_raw = self.receiver.command("volume query")
         mute_raw = self.receiver.command("audio-muting query")
@@ -89,7 +89,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
         # We avoid this by checking if HDMI out is supported
         if listening_mode_raw:
             sound_mode = self._parse_onkyo_payload(listening_mode_raw)[-1]
-            datas.update({"sound_mode": sound_mode})
+            data.update({"sound_mode": sound_mode})
 
         if self.hdmi_out_supported:
             hdmi_out_raw = self.receiver.command("hdmi-output-selector query")
@@ -105,7 +105,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
             info_video = self._parse_video_information(video_information_raw)
             attributes.update(info_video)
         if not (volume_raw and mute_raw and current_source_raw):
-            return datas
+            return data
 
         sources = self._parse_onkyo_payload(current_source_raw)
         for source in sources:
@@ -114,7 +114,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
                 break
             current_source = "_".join(sources)
 
-        datas.update({"current_source": current_source})
+        data.update({"current_source": current_source})
 
         if preset_raw and current_source.lower() == "radio":
             attributes[ATTR_PRESET] = preset_raw[1]
@@ -122,36 +122,36 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
             del attributes[ATTR_PRESET]
 
         muted = bool(mute_raw[1] == "on")
-        datas.update({"muted": muted})
+        data.update({"muted": muted})
 
         # AMP_VOL/MAX_RECEIVER_VOL*(MAX_VOL/100)
         volume = volume_raw[1] / (self.receiver_max_volume * self.max_volume / 100)
-        datas.update({"volume": volume})
+        data.update({"volume": volume})
 
         if not hdmi_out_raw:
-            return datas
+            return data
 
         attributes[ATTR_VIDEO_OUT] = ",".join(hdmi_out_raw[1])
         if hdmi_out_raw[1] == "N/A":
-            datas.update({"hdmi_out_supported": False})
+            data.update({"hdmi_out_supported": False})
 
-        datas.update({"attributes": attributes})
+        data.update({"attributes": attributes})
 
-        return datas
+        return data
 
     async def async_fetch_data_zone(self, zone):
         """Fetch data zone."""
-        datas = {}
+        data = {}
         attributes = {}
 
         status = self.receiver.command(f"{zone}.power=query")
         if not status:
-            return datas
+            return data
         if status[1] == "on":
-            datas.update({"pwstate": STATE_ON})
+            data.update({"pwstate": STATE_ON})
         else:
-            datas.update({"pwstate": STATE_OFF, "attributes": attributes})
-            return datas
+            data.update({"pwstate": STATE_OFF, "attributes": attributes})
+            return data
 
         volume_raw = self.receiver.command(f"{zone}.volume=query")
         mute_raw = self.receiver.command(f"{zone}.muting=query")
@@ -181,10 +181,10 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
                 break
             current_source = "_".join(current_source_tuples[1])
 
-        datas.update({"current_source": current_source})
+        data.update({"current_source": current_source})
 
         muted = bool(mute_raw[1] == "on")
-        datas.update({"muted": muted})
+        data.update({"muted": muted})
 
         if preset_raw and current_source.lower() == "radio":
             attributes[ATTR_PRESET] = preset_raw[1]
@@ -196,10 +196,10 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
             volume = (
                 volume_raw[1] / self.receiver_max_volume * (self.max_volume / 100)
             )
-            datas.update({"volume": volume})
+            data.update({"volume": volume})
 
-        datas.update({"attributes": attributes})
-        return datas
+        data.update({"attributes": attributes})
+        return data
 
     def _parse_onkyo_payload(self, payload):
         """Parse a payload returned from the eiscp library."""
