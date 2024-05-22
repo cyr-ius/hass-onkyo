@@ -1,4 +1,5 @@
 """Support for Onkyo Receivers."""
+
 from __future__ import annotations
 
 import logging
@@ -11,7 +12,6 @@ from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
     MediaType,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
@@ -21,6 +21,7 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
 )
 
+from . import OnkyoConfigEntry
 from .const import (
     ACCEPTED_VALUES,
     ATTR_HDMI_OUTPUT,
@@ -63,12 +64,12 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    entry: OnkyoConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Onkyo entry."""
     entities = []
-    coordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = entry.runtime_data
     for k, v in coordinator.data.items():
         if k == "main":
             entities.append(OnkyoDevice(coordinator, k))

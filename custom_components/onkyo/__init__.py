@@ -1,4 +1,5 @@
 """The onkyo component."""
+
 from __future__ import annotations
 
 import logging
@@ -13,10 +14,12 @@ from homeassistant.exceptions import HomeAssistantError
 from .const import DOMAIN, PLATFORMS
 from .coordinator import OnkyoUpdateCoordinator
 
+type OnkyoConfigEntry = ConfigEntry[OnkyoUpdateCoordinator]
+
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup(hass, config):
+async def async_setup(hass: HomeAssistant, config):
     """Set up the onkyo environment."""
     hass.data.setdefault(DOMAIN, {})
 
@@ -37,13 +40,13 @@ async def async_setup(hass, config):
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: OnkyoConfigEntry) -> bool:
     """Set the config entry up."""
     coordinator = OnkyoUpdateCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
+    entry.runtime_data = coordinator
 
     entry.async_on_unload(entry.add_update_listener(update_listener))
-    hass.data[DOMAIN][entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
@@ -54,12 +57,11 @@ async def update_listener(hass, entry):
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: OnkyoConfigEntry) -> bool:
     """Unload a config entry."""
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        coordinator = hass.data[DOMAIN][entry.entry_id]
+        coordinator = entry.runtime_data
         await hass.async_add_executor_job(coordinator.receiver.disconnect)
-        hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
 
 
