@@ -21,7 +21,6 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup(hass: HomeAssistant, config):
     """Set up the onkyo environment."""
-    hass.data.setdefault(DOMAIN, {})
 
     # Import configuration from media_player platform
     config_platform = config_per_platform(config, media_domain)
