@@ -1,4 +1,5 @@
 """onkyo coordinators."""
+
 from __future__ import annotations
 
 from datetime import timedelta
@@ -57,13 +58,14 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
             data.update({"main": main})
 
             for zone in self._determine_zones(self.receiver):
-                data = await self.async_fetch_data_zone(zone)
-                data.update({zone: data})
+                other = await self.async_fetch_data_zone(zone)
+                data.update({zone: other})
 
-            return data
         except Exception as error:
             _LOGGER.debug(error)
             raise UpdateFailed from error
+        else:
+            return data
 
     async def async_fetch_data(self) -> dict:
         """Fetch all data from api."""
@@ -163,7 +165,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
             supports_volume = False
 
         if not (volume_raw and mute_raw and current_source_raw):
-            return
+            return None
 
         # It's possible for some players to have zones set to HDMI with
         # no sound control. In this case, the string `N/A` is returned.
@@ -193,9 +195,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
 
         if supports_volume:
             # AMP_VOL/MAX_RECEIVER_VOL*(MAX_VOL/100)
-            volume = (
-                volume_raw[1] / self.receiver_max_volume * (self.max_volume / 100)
-            )
+            volume = volume_raw[1] / self.receiver_max_volume * (self.max_volume / 100)
             data.update({"volume": volume})
 
         data.update({"attributes": attributes})
