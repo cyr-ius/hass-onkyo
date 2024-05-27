@@ -6,7 +6,6 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
@@ -68,13 +67,13 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Onkyo entry."""
-    entities = []
     coordinator = entry.runtime_data
-    for k, v in coordinator.data.items():
-        if k == "main":
-            entities.append(OnkyoDevice(coordinator, k))
-        else:
-            entities.append(OnkyoDeviceZone(coordinator, k))
+    entities = [
+        OnkyoDevice(coordinator, key)
+        if key == "main"
+        else OnkyoDeviceZone(coordinator, key)
+        for key in coordinator.data
+    ]
 
     async def async_service_handler(service: ServiceCall) -> None:
         """Handle for services."""
