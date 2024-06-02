@@ -1,5 +1,8 @@
 """Helpers to Onkyo media player."""
+
 from __future__ import annotations
+
+from typing import Any
 
 from eiscp.commands import COMMANDS
 
@@ -30,11 +33,12 @@ def build_sounds_mode_list() -> dict:
         sounds_list.append(name)
     sounds_list = list(set(sounds_list))
     sounds_list.sort()
-    sounds_mode = {name: name.replace("-", " ").title() for name in sounds_list}
-    return sounds_mode
+    return {name: name.replace("-", " ").title() for name in sounds_list}
 
 
-def build_selected_dict(sources: list = None, sounds: list = None) -> dict[str, str]:
+def build_selected_dict(
+    sources: dict[str, Any] | None = None, sounds: dict[str, Any] | None = None
+) -> dict[str, str]:
     """Return selected dictionary."""
     if sources:
         return {k: v for k, v in build_sources_list().items() if (k in sources)}

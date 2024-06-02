@@ -9,7 +9,6 @@ from homeassistant.components.media_player.const import DOMAIN as media_domain
 from homeassistant.config import config_per_platform
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 
 from .const import DOMAIN, PLATFORMS
 from .coordinator import OnkyoUpdateCoordinator
@@ -62,7 +61,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: OnkyoConfigEntry) -> bo
         coordinator = entry.runtime_data
         await hass.async_add_executor_job(coordinator.receiver.disconnect)
     return unload_ok
-
-
-class CannotConnect(HomeAssistantError):
-    """Error to indicate we cannot connect."""

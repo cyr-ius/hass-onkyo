@@ -10,6 +10,7 @@ from eiscp import eISCP as onkyo_rcv
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
@@ -259,7 +260,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
                 _LOGGER.debug("Zone 2 not available")
         except ValueError as error:
             if str(error) != TIMEOUT_MESSAGE:
-                raise error
+                raise HomeAssistantError(error) from error
             _LOGGER.debug("Zone 2 timed out, assuming no functionality")
 
         try:
@@ -271,7 +272,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
                 _LOGGER.debug("Zone 3 not available")
         except ValueError as error:
             if str(error) != TIMEOUT_MESSAGE:
-                raise error
+                raise HomeAssistantError(error) from error
             _LOGGER.debug("Zone 3 timed out, assuming no functionality")
         except AssertionError:
             _LOGGER.error("Zone 3 detection failed")
