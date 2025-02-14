@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import logging
-
 from homeassistant import config_entries
 from homeassistant.components.media_player.const import DOMAIN as media_domain
 from homeassistant.config import config_per_platform
@@ -14,8 +12,6 @@ from .const import DOMAIN, PLATFORMS
 from .coordinator import OnkyoUpdateCoordinator
 
 type OnkyoConfigEntry = ConfigEntry[OnkyoUpdateCoordinator]
-
-_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup(hass: HomeAssistant, config):
