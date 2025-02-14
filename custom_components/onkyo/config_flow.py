@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import logging
+from typing import Any, Mapping
 from urllib.parse import urlparse
 
-from eiscp import eISCP as onkyo_rcv
+import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-
+from eiscp import eISCP as onkyo_rcv
 from homeassistant import config_entries
-from homeassistant.components import ssdp
 from homeassistant.components.persistent_notification import create as notify_create
 from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import callback
-import homeassistant.helpers.config_validation as cv
+from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers.service_info.ssdp import (
+    ATTR_UPNP_FRIENDLY_NAME,
+    SsdpServiceInfo,
+)
 
 from .const import (
     CONF_MAX_VOLUME,
@@ -71,12 +75,14 @@ class OnkyoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Get the options flow for this handler."""
         return OptionsFlowHandler()
 
-    async def async_step_import(self, import_info):
+    async def async_step_import(self, import_info) -> FlowResult:
         """Set the config entry up from yaml."""
         self.is_imported = True
         return await self.async_step_user(import_info)
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self, user_input: Mapping[str, Any] | None = None
+    ) -> FlowResult:
         """Handle a flow initialized by the user."""
         errors = {}
         if user_input:
@@ -122,10 +128,10 @@ class OnkyoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=DATA_SCHEMA, errors=errors
         )
 
-    async def async_step_ssdp(self, discovery_info):
+    async def async_step_ssdp(self, discovery_info: SsdpServiceInfo) -> FlowResult:
         """Handle a discovered device."""
         hostname = urlparse(discovery_info.ssdp_location).hostname
-        friendly_name = discovery_info.upnp[ssdp.ATTR_UPNP_FRIENDLY_NAME]
+        friendly_name = discovery_info.upnp[ATTR_UPNP_FRIENDLY_NAME]
 
         self._async_abort_entries_match({CONF_HOST: hostname})
         user_input = {
@@ -142,7 +148,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         """Initialize options flow."""
         self._other_options = None
 
-    async def async_step_init(self, user_input=None):
+    async def async_step_init(
+        self, user_input: Mapping[str, Any] | None = None
+    ) -> FlowResult:
         """Select sources."""
         errors = {}
 
@@ -197,7 +205,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="init", data_schema=sources_schema, errors=errors
         )
 
-    async def async_step_custom_sources(self, user_input=None, sources_selected=None):
+    async def async_step_custom_sources(
+        self,
+        user_input: Mapping[str, Any] | None = None,
+        sources_selected: list[str] | None = None,
+    ) -> FlowResult:
         """Rename sources."""
         if user_input is not None:
             data = {CONF_SOURCES: user_input}
