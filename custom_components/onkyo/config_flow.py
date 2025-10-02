@@ -182,8 +182,8 @@ class OnkyoConfigFlow(config_entries.ConfigFlow):
             dict with 'success', 'error', and 'allow_setup' keys
         """
         try:
-            # Import pyeiscp here to avoid import issues
-            from pyeiscp import eISCP
+            # Import eiscp here to avoid import issues
+            from eiscp import eISCP
             
             # Try to create receiver instance
             receiver = eISCP(host)
@@ -236,7 +236,7 @@ class OnkyoConfigFlow(config_entries.ConfigFlow):
                     pass
                 
         except ImportError:
-            _LOGGER.error("pyeiscp library not found")
+            _LOGGER.error("eiscp library not found. It should be installed automatically. Please check your logs.")
             return {
                 "success": False,
                 "error": "library_missing",

@@ -16,8 +16,7 @@ This module handles:
 import asyncio
 import logging
 from typing import Any
-
-from pyeiscp import eISCP
+from eiscp import eISCP
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME, Platform

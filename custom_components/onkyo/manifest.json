@@ -1,18 +1,13 @@
 {
   "domain": "onkyo",
-  "name": "Onkyo",
-  "codeowners": [],
+  "name": "Onkyo Receiver",
   "config_flow": true,
-  "dependencies": ["persistent_notification"],
-  "documentation": "https://www.home-assistant.io/integrations/onkyo",
-  "iot_class": "local_polling",
-  "loggers": ["eiscp"],
-  "requirements": ["onkyo-eiscp==1.2.7"],
-  "ssdp": [
-    {
-      "manufacturer": "Onkyo & Pioneer Corporation",
-      "deviceType": "urn:schemas-upnp-org:device:MediaRenderer:2"
-    }
+  "documentation": "https://github.com/micha-d/hass-onkyo-extended",
+  "issue_tracker": "https://github.com/micha-d/hass-onkyo-extended/issues",
+  "codeowners": ["@micha-d"],
+  "requirements": [
+    "eiscp==1.2.8"
   ],
-  "version": "1.6.5"
+  "version": "1.0.0",
+  "iot_class": "local_polling"
 }
