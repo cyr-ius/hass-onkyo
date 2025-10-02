@@ -4,37 +4,46 @@ Onkyo Config Flow with Enhanced Error Handling
 
 Fixes for configuration issues related to 2024.9+ breaking changes.
 Provides robust setup even when receiver is temporarily unavailable.
+Compatible with HA 2025.10.0
 """
+
+from __future__ import annotations
 
 import logging
 from typing import Any
 
 import voluptuous as vol
+from eiscp import eISCP
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 
-_LOGGER = logging.getLogger(__name__)
+from .const import (
+    CONF_MAX_VOLUME,
+    CONF_RECEIVER_MAX_VOLUME,
+    CONF_SOURCES,
+    CONF_VOLUME_RESOLUTION,
+    DEFAULT_RECEIVER_MAX_VOLUME,
+    DEFAULT_VOLUME_RESOLUTION,
+    DOMAIN,
+)
+from .helpers import build_selected_dict, build_sources_list, build_sounds_mode_list
 
-# Constants
-DOMAIN = "onkyo"
-DEFAULT_NAME = "Onkyo Receiver"
-CONF_RECEIVER_MAX_VOLUME = "receiver_max_volume"
-CONF_VOLUME_RESOLUTION = "volume_resolution"
-DEFAULT_RECEIVER_MAX_VOLUME = 100
-DEFAULT_VOLUME_RESOLUTION = 80
+_LOGGER = logging.getLogger(__name__)
 
 # Volume resolution options (steps from min to max volume)
 VOLUME_RESOLUTION_OPTIONS = [50, 80, 100, 200]
 
+DEFAULT_NAME = "Onkyo Receiver"
 
-class OnkyoConfigFlow(config_entries.ConfigFlow):
+
+class OnkyoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """
     Handle a config flow for Onkyo.
     
-    Enhanced with better error handling for 2024.9+ compatibility.
+    Enhanced with better error handling for 2024.9+ and 2025.10+ compatibility.
     """
 
     VERSION = 2
@@ -61,66 +70,66 @@ class OnkyoConfigFlow(config_entries.ConfigFlow):
             # Try to connect to the receiver
             result = await self._async_try_connect(host)
             
-            if result["success"]:
-                # Connection successful
-                return self.async_create_entry(
-                    title=user_input.get(CONF_NAME, DEFAULT_NAME),
-                    data={
-                        CONF_HOST: host,
-                        CONF_NAME: user_input.get(CONF_NAME, DEFAULT_NAME),
-                        CONF_RECEIVER_MAX_VOLUME: DEFAULT_RECEIVER_MAX_VOLUME,
-                        CONF_VOLUME_RESOLUTION: DEFAULT_VOLUME_RESOLUTION,
-                    },
-                )
-            else:
-                # Connection failed - but allow setup anyway
-                # Receiver might be off or network issue
-                if result.get("allow_setup", False):
+            # Get sources list
+            sources = build_sources_list()
+            
+            # Create entry data
+            entry_data = {
+                CONF_HOST: host,
+                CONF_NAME: user_input.get(CONF_NAME, DEFAULT_NAME),
+            }
+            
+            # Create options with defaults
+            entry_options = {
+                CONF_RECEIVER_MAX_VOLUME: user_input.get(
+                    CONF_RECEIVER_MAX_VOLUME, DEFAULT_RECEIVER_MAX_VOLUME
+                ),
+                CONF_VOLUME_RESOLUTION: DEFAULT_VOLUME_RESOLUTION,
+                CONF_MAX_VOLUME: 100,
+                CONF_SOURCES: sources,
+            }
+            
+            if result["success"] or result.get("allow_setup", False):
+                if not result["success"]:
                     _LOGGER.warning(
                         "Could not verify connection to %s, but allowing setup. "
                         "Error: %s",
                         host,
                         result.get("error")
                     )
-                    
-                    # Show warning to user
-                    errors["base"] = "cannot_connect_will_retry"
-                    
-                    # Create entry anyway - will reconnect when receiver is available
-                    return self.async_create_entry(
-                        title=user_input.get(CONF_NAME, DEFAULT_NAME),
-                        data={
-                            CONF_HOST: host,
-                            CONF_NAME: user_input.get(CONF_NAME, DEFAULT_NAME),
-                            CONF_RECEIVER_MAX_VOLUME: DEFAULT_RECEIVER_MAX_VOLUME,
-                            CONF_VOLUME_RESOLUTION: DEFAULT_VOLUME_RESOLUTION,
-                        },
-                    )
-                else:
-                    # Hard failure - invalid host or other issue
-                    errors["base"] = result.get("error", "unknown")
+                
+                # Create entry with options
+                return self.async_create_entry(
+                    title=user_input.get(CONF_NAME, DEFAULT_NAME),
+                    data=entry_data,
+                    options=entry_options,
+                )
+            else:
+                # Hard failure - invalid host or other issue
+                errors["base"] = result.get("error", "unknown")
         
         # Show the form
         data_schema = vol.Schema({
             vol.Required(CONF_HOST): str,
             vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
+            vol.Optional(
+                CONF_RECEIVER_MAX_VOLUME,
+                default=DEFAULT_RECEIVER_MAX_VOLUME
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=200)),
         })
         
         return self.async_show_form(
             step_id="user",
             data_schema=data_schema,
             errors=errors,
-            description_placeholders={
-                "error_detail": errors.get("base", "")
-            }
         )
     
-    async def async_step_zeroconf(
+    async def async_step_ssdp(
         self, discovery_info: dict[str, Any]
     ) -> FlowResult:
-        """Handle zeroconf discovery."""
-        host = discovery_info.get("host")
-        name = discovery_info.get("name", "").replace("._eISCP._tcp.local.", "")
+        """Handle SSDP discovery."""
+        host = discovery_info.get("host") or discovery_info.get("ssdp_location", "").split("://")[1].split(":")[0]
+        name = discovery_info.get("friendlyName", "").replace("._eISCP._tcp.local.", "")
         
         if not host:
             return self.async_abort(reason="no_host")
@@ -142,8 +151,6 @@ class OnkyoConfigFlow(config_entries.ConfigFlow):
         result = await self._async_try_connect(host)
         
         if not result["success"]:
-            # Discovery found it but can't connect - might be off
-            # Show confirmation anyway
             _LOGGER.info(
                 "Discovered Onkyo receiver at %s but cannot connect yet",
                 host
@@ -156,13 +163,20 @@ class OnkyoConfigFlow(config_entries.ConfigFlow):
     ) -> FlowResult:
         """Confirm discovery."""
         if user_input is not None:
+            # Get sources list
+            sources = build_sources_list()
+            
             return self.async_create_entry(
                 title=self._name,
                 data={
                     CONF_HOST: self._host,
                     CONF_NAME: self._name,
+                },
+                options={
                     CONF_RECEIVER_MAX_VOLUME: DEFAULT_RECEIVER_MAX_VOLUME,
                     CONF_VOLUME_RESOLUTION: DEFAULT_VOLUME_RESOLUTION,
+                    CONF_MAX_VOLUME: 100,
+                    CONF_SOURCES: sources,
                 },
             )
         
@@ -182,16 +196,13 @@ class OnkyoConfigFlow(config_entries.ConfigFlow):
             dict with 'success', 'error', and 'allow_setup' keys
         """
         try:
-            # Import eiscp here to avoid import issues
-            from eiscp import eISCP
-            
             # Try to create receiver instance
             receiver = eISCP(host)
             
             try:
                 # Attempt basic connection test with timeout
                 await self.hass.async_add_executor_job(
-                    receiver.power
+                    receiver.command, "system-power", "query"
                 )
                 
                 # Connection successful
@@ -236,7 +247,7 @@ class OnkyoConfigFlow(config_entries.ConfigFlow):
                     pass
                 
         except ImportError:
-            _LOGGER.error("eiscp library not found. It should be installed automatically. Please check your logs.")
+            _LOGGER.error("onkyo-eiscp library not found")
             return {
                 "success": False,
                 "error": "library_missing",
@@ -277,46 +288,50 @@ class OnkyoOptionsFlowHandler(config_entries.OptionsFlow):
             # Validate volume settings
             max_volume = user_input[CONF_RECEIVER_MAX_VOLUME]
             
-            if max_volume < 1 or max_volume > 100:
+            if max_volume < 1 or max_volume > 200:
                 errors[CONF_RECEIVER_MAX_VOLUME] = "invalid_max_volume"
             else:
-                # Update the config entry
+                # Update the config entry options
                 return self.async_create_entry(title="", data=user_input)
         
         # Get current settings
         current_max_volume = self.config_entry.options.get(
             CONF_RECEIVER_MAX_VOLUME,
-            self.config_entry.data.get(
-                CONF_RECEIVER_MAX_VOLUME,
-                DEFAULT_RECEIVER_MAX_VOLUME
-            )
+            DEFAULT_RECEIVER_MAX_VOLUME
         )
         
         current_resolution = self.config_entry.options.get(
             CONF_VOLUME_RESOLUTION,
-            self.config_entry.data.get(
-                CONF_VOLUME_RESOLUTION,
-                DEFAULT_VOLUME_RESOLUTION
-            )
+            DEFAULT_VOLUME_RESOLUTION
+        )
+        
+        current_max_vol_pct = self.config_entry.options.get(
+            CONF_MAX_VOLUME,
+            100
+        )
+        
+        current_sources = self.config_entry.options.get(
+            CONF_SOURCES,
+            build_sources_list()
         )
         
         options_schema = vol.Schema({
             vol.Required(
                 CONF_RECEIVER_MAX_VOLUME,
                 default=current_max_volume
-            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=200)),
             vol.Required(
                 CONF_VOLUME_RESOLUTION,
                 default=current_resolution
             ): vol.In(VOLUME_RESOLUTION_OPTIONS),
+            vol.Required(
+                CONF_MAX_VOLUME,
+                default=current_max_vol_pct
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
         })
         
         return self.async_show_form(
             step_id="init",
             data_schema=options_schema,
             errors=errors,
-            description_placeholders={
-                "current_max": str(current_max_volume),
-                "current_resolution": str(current_resolution),
-            }
         )
