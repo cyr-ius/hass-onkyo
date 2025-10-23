@@ -24,15 +24,12 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .connection import OnkyoConnectionManager
-from .const import (
-    ATTR_HDMI_OUTPUT,
-    DOMAIN,
-)
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -112,36 +109,24 @@ def _detect_zones_safe(receiver) -> list[str]:
     """
     Safely detect available zones.
     
-    Returns list of zone names, or ["main"] if detection fails.
+    Returns a list of zone names, or ["main"] if detection fails.
     """
+    zones = ["main"]
     try:
         # Query receiver for available zones
-        zones = []
-        
-        # Main zone always exists
-        zones.append("main")
-        
-        # Check for Zone 2
-        try:
-            zone2_power = receiver.command("zone2.power=query")
-            if zone2_power:
-                zones.append("zone2")
-        except Exception:
-            pass
-        
-        # Check for Zone 3
-        try:
-            zone3_power = receiver.command("zone3.power=query")
-            if zone3_power:
-                zones.append("zone3")
-        except Exception:
-            pass
-        
-        return zones
-        
+        zone2_power = receiver.command("zone2.power=query")
+        if zone2_power:
+            zones.append("zone2")
+
+        zone3_power = receiver.command("zone3.power=query")
+        if zone3_power:
+            zones.append("zone3")
+
     except Exception as err:
-        _LOGGER.debug("Zone detection failed: %s", err)
+        _LOGGER.debug("Zone detection failed: %s. Defaulting to main zone.", err)
         return ["main"]
+
+    return zones
 
 
 class OnkyoMediaPlayer(MediaPlayerEntity):
@@ -258,14 +243,17 @@ class OnkyoMediaPlayer(MediaPlayerEntity):
             self._attr_available = True
             
         elif command == "volume":
-            self._attr_volume_level = self._receiver_volume_to_ha(value)
+            try:
+                self._attr_volume_level = self._receiver_volume_to_ha(int(value))
+            except (ValueError, TypeError):
+                _LOGGER.debug("Invalid volume value received: %s", value)
             
         elif command == "muting":
             self._attr_is_volume_muted = value == "on"
             
-        elif command == "input-selector" or command == "selector":
-            if isinstance(value, tuple):
-                self._attr_source = value[1] if len(value) > 1 else value[0]
+        elif command in ("input-selector", "selector"):
+            if isinstance(value, tuple) and len(value) > 0:
+                self._attr_source = value[0]
             else:
                 self._attr_source = str(value)
         
@@ -298,12 +286,12 @@ class OnkyoMediaPlayer(MediaPlayerEntity):
             await self._async_update_source()
             await self._async_update_mute()
             
-            # Fetch lists if empty (Issue #125768 fix)
-            if not self._attr_source_list:
+            # Periodically refresh source and listening mode lists
+            self._list_refresh_count = getattr(self, "_list_refresh_count", 0) + 1
+            if self._list_refresh_count > 100 or not self._attr_source_list:
                 await self._async_fetch_source_list()
-            
-            if not self._listening_modes:
                 await self._async_fetch_listening_modes()
+                self._list_refresh_count = 0
             
         elif power_state == "standby":
             self._attr_state = MediaPlayerState.OFF
@@ -324,13 +312,13 @@ class OnkyoMediaPlayer(MediaPlayerEntity):
                     "command", f"{self._zone}.power=query"
                 )
             
-            # Parse result
-            if isinstance(result, tuple) and len(result) >= 2:
+            # Parse result, which can be a tuple or a single value
+            if isinstance(result, tuple) and len(result) > 1:
                 return result[1]
-            return str(result)
-            
+            return str(result) if result is not None else "unknown"
+
         except Exception as err:
-            _LOGGER.debug("Failed to get power state: %s", err)
+            _LOGGER.debug("Failed to get power state for %s: %s", self.name, err)
             return "unknown"
     
     async def _async_update_volume(self) -> None:
@@ -363,13 +351,11 @@ class OnkyoMediaPlayer(MediaPlayerEntity):
             )
             
             if result:
-                if isinstance(result, tuple):
-                    self._attr_source = result[1] if len(result) > 1 else result[0]
-                else:
-                    self._attr_source = str(result)
+                # The source can be a tuple, so we extract the first element
+                self._attr_source = result[0] if isinstance(result, tuple) else result
                     
         except Exception as err:
-            _LOGGER.debug("Failed to update source: %s", err)
+            _LOGGER.debug("Failed to update source for %s: %s", self.name, err)
     
     async def _async_update_mute(self) -> None:
         """Update mute state."""
@@ -458,46 +444,19 @@ class OnkyoMediaPlayer(MediaPlayerEntity):
     
     async def async_turn_on(self) -> None:
         """Turn the media player on."""
-        try:
-            command = (
-                "system-power=on" if self._zone == "main"
-                else f"{self._zone}.power=on"
-            )
-            await self._conn_manager.async_send_command("command", command)
-            
-            # Wait for receiver to power on
-            await asyncio.sleep(2)
-            
-            # Fetch device info after power on
-            if not self._attr_source_list:
-                await self._async_fetch_source_list()
-            if not self._listening_modes:
-                await self._async_fetch_listening_modes()
-            
-            self._attr_state = MediaPlayerState.ON
-            self._attr_available = True
-            self.async_write_ha_state()
-            
-        except Exception as err:
-            _LOGGER.error("Failed to turn on %s: %s", self._attr_name, err)
-            self._attr_available = False
-            raise
+        command = f"{self._zone}.power=on" if self._zone != "main" else "system-power=on"
+        await self._conn_manager.async_send_command("command", command)
+
+        # Schedule a forced update to reflect the new state
+        self.async_schedule_update_ha_state(force_refresh=True)
     
     async def async_turn_off(self) -> None:
         """Turn the media player off."""
-        try:
-            command = (
-                "system-power=standby" if self._zone == "main"
-                else f"{self._zone}.power=standby"
-            )
-            await self._conn_manager.async_send_command("command", command)
-            
-            self._attr_state = MediaPlayerState.OFF
-            self.async_write_ha_state()
-            
-        except Exception as err:
-            _LOGGER.error("Failed to turn off %s: %s", self._attr_name, err)
-            raise
+        command = (
+            f"{self._zone}.power=standby" if self._zone != "main" else "system-power=standby"
+        )
+        await self._conn_manager.async_send_command("command", command)
+        self.async_schedule_update_ha_state()
     
     async def async_set_volume_level(self, volume: float) -> None:
         """
@@ -505,90 +464,50 @@ class OnkyoMediaPlayer(MediaPlayerEntity):
         
         Converts HA volume to receiver-specific scale.
         """
-        try:
-            receiver_volume = self._ha_volume_to_receiver(volume)
-            
-            command = (
-                f"master-volume={receiver_volume}" if self._zone == "main"
-                else f"{self._zone}.volume={receiver_volume}"
-            )
-            await self._conn_manager.async_send_command("command", command)
-            
-            self._attr_volume_level = volume
-            self.async_write_ha_state()
-            
-        except Exception as err:
-            _LOGGER.error("Failed to set volume: %s", err)
-            raise
+        receiver_volume = self._ha_volume_to_receiver(volume)
+        command = (
+            f"{self._zone}.volume={receiver_volume}"
+            if self._zone != "main"
+            else f"master-volume={receiver_volume}"
+        )
+        await self._conn_manager.async_send_command("command", command)
     
     async def async_volume_up(self) -> None:
         """Volume up the media player."""
-        try:
-            command = (
-                "master-volume=level-up" if self._zone == "main"
-                else f"{self._zone}.volume=level-up"
-            )
-            await self._conn_manager.async_send_command("command", command)
-            
-            # Update state after a moment
-            await asyncio.sleep(0.2)
-            await self._async_update_volume()
-            self.async_write_ha_state()
-            
-        except Exception as err:
-            _LOGGER.error("Failed to increase volume: %s", err)
-            raise
-    
+        command = (
+            f"{self._zone}.volume=level-up" if self._zone != "main" else "master-volume=level-up"
+        )
+        await self._conn_manager.async_send_command("command", command)
+        self.async_schedule_update_ha_state()
+
     async def async_volume_down(self) -> None:
         """Volume down the media player."""
-        try:
-            command = (
-                "master-volume=level-down" if self._zone == "main"
-                else f"{self._zone}.volume=level-down"
-            )
-            await self._conn_manager.async_send_command("command", command)
-            
-            # Update state after a moment
-            await asyncio.sleep(0.2)
-            await self._async_update_volume()
-            self.async_write_ha_state()
-            
-        except Exception as err:
-            _LOGGER.error("Failed to decrease volume: %s", err)
-            raise
+        command = (
+            f"{self._zone}.volume=level-down"
+            if self._zone != "main"
+            else "master-volume=level-down"
+        )
+        await self._conn_manager.async_send_command("command", command)
+        self.async_schedule_update_ha_state()
     
     async def async_mute_volume(self, mute: bool) -> None:
         """Mute or unmute the media player."""
-        try:
-            mute_state = "on" if mute else "off"
-            command = (
-                f"audio-muting={mute_state}" if self._zone == "main"
-                else f"{self._zone}.muting={mute_state}"
-            )
-            await self._conn_manager.async_send_command("command", command)
-            
-            self._attr_is_volume_muted = mute
-            self.async_write_ha_state()
-            
-        except Exception as err:
-            _LOGGER.error("Failed to %s: %s", "mute" if mute else "unmute", err)
-            raise
+        mute_state = "on" if mute else "off"
+        command = (
+            f"{self._zone}.muting={mute_state}"
+            if self._zone != "main"
+            else f"audio-muting={mute_state}"
+        )
+        await self._conn_manager.async_send_command("command", command)
     
     async def async_select_source(self, source: str) -> None:
         """Select input source."""
-        try:
-            command = (
-                f"input-selector={source}" if self._zone == "main"
-                else f"{self._zone}.selector={source}"
-            )
-            await self._conn_manager.async_send_command("command", command)
-            
-            self._attr_source = source
-            self.async_write_ha_state()
-            
-        except Exception as err:
-            _LOGGER.error("Failed to select source %s: %s", source, err)
-            raise
+        command = (
+            f"{self._zone}.selector={source}"
+            if self._zone != "main"
+            else f"input-selector={source}"
+        )
+        await self._conn_manager.async_send_command("command", command)
     
     async def async_play_media(
         self, media_type: str, media_id: str, **kwargs: Any
@@ -600,50 +519,33 @@ class OnkyoMediaPlayer(MediaPlayerEntity):
             media_type: Type of media (e.g., "radio")
             media_id: Preset number (1-40)
         """
-        try:
-            if media_type.lower() == "radio":
-                # Select radio tuner as source first
-                await self.async_select_source("radio")
-                await asyncio.sleep(0.5)
-                
-                # Select preset
-                command = f"preset={media_id}" if self._zone == "main" else f"{self._zone}.preset={media_id}"
-                await self._conn_manager.async_send_command("command", command)
-                
-                _LOGGER.debug("Playing radio preset %s", media_id)
-            else:
-                _LOGGER.warning("Unsupported media type: %s", media_type)
-                
-        except Exception as err:
-            _LOGGER.error("Failed to play media: %s", err)
-            raise
+        if media_type.lower() == "radio":
+            # Select radio tuner as source first
+            await self.async_select_source("radio")
+            await asyncio.sleep(0.5)
+
+            # Select preset
+            command = f"preset={media_id}" if self._zone == "main" else f"{self._zone}.preset={media_id}"
+            await self._conn_manager.async_send_command("command", command)
+        else:
+            _LOGGER.warning("Unsupported media type: %s", media_type)
     
     # Custom Services
     
     async def async_select_hdmi_output(self, hdmi_output: str) -> None:
-        """
-        Select HDMI output (custom service).
-        
-        Args:
-            hdmi_output: Output selector (no, analog, yes, out, out-sub, sub, hdbaset, both, up)
-        """
+        """Select HDMI output."""
         if self._zone != "main":
-            _LOGGER.warning("HDMI output selection only available for main zone")
+            _LOGGER.warning("HDMI output selection is only available for the main zone.")
             return
-        
-        try:
-            command = f"hdmi-output-selector={hdmi_output}"
-            await self._conn_manager.async_send_command("command", command)
-            
-            _LOGGER.debug("Selected HDMI output: %s", hdmi_output)
-            
-            # Update extra attributes
-            self._attr_extra_state_attributes[ATTR_HDMI_OUTPUT] = hdmi_output
-            self.async_write_ha_state()
-            
-        except Exception as err:
-            _LOGGER.error("Failed to select HDMI output %s: %s", hdmi_output, err)
-            raise
+
+        # List of valid HDMI output values
+        valid_outputs = ["no", "analog", "yes", "out", "out-sub", "sub", "hdbaset", "both", "up"]
+        if hdmi_output not in valid_outputs:
+            _LOGGER.warning("Invalid HDMI output: %s", hdmi_output)
+            return
+
+        command = f"hdmi-output-selector={hdmi_output}"
+        await self._conn_manager.async_send_command("command", command)
     
     # Helper Methods
     
@@ -692,8 +594,10 @@ class OnkyoMediaPlayer(MediaPlayerEntity):
         )
         
         # Scale: receiver steps -> max volume % -> HA volume
-        ha_volume = (receiver_volume / resolution) / (max_volume / 100)
-        return min(1.0, max(0.0, ha_volume))
+        if resolution > 0 and max_volume > 0:
+            ha_volume = (receiver_volume / resolution) / (max_volume / 100)
+            return min(1.0, max(0.0, ha_volume))
+        return 0.0
     
     # Properties
     
@@ -709,12 +613,8 @@ class OnkyoMediaPlayer(MediaPlayerEntity):
     
     @property
     def available(self) -> bool:
-        """
-        Return if entity is available.
-        
-        Considers both connection manager state and entity availability.
-        """
-        return self._attr_available and self._conn_manager.connected
+        """Return if entity is available."""
+        return self._attr_available
     
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

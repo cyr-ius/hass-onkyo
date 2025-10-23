@@ -16,6 +16,9 @@ import voluptuous as vol
 from eiscp import eISCP
 
 from homeassistant import config_entries
+import urllib.parse
+
+from homeassistant.components import ssdp
 from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
@@ -29,7 +32,7 @@ from .const import (
     DEFAULT_VOLUME_RESOLUTION,
     DOMAIN,
 )
-from .helpers import build_selected_dict, build_sources_list, build_sounds_mode_list
+from .helpers import build_sources_list
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -124,37 +127,34 @@ class OnkyoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
     
-    async def async_step_ssdp(
-        self, discovery_info: dict[str, Any]
-    ) -> FlowResult:
+    async def async_step_ssdp(self, discovery_info: ssdp.SsdpServiceInfo) -> FlowResult:
         """Handle SSDP discovery."""
-        host = discovery_info.get("host") or discovery_info.get("ssdp_location", "").split("://")[1].split(":")[0]
-        name = discovery_info.get("friendlyName", "").replace("._eISCP._tcp.local.", "")
-        
+        # Extract host and name from discovery info
+        host = urllib.parse.urlparse(discovery_info.ssdp_location).hostname
+        name = discovery_info.upnp.get("friendlyName", DEFAULT_NAME)
+
+        # Filter out non-eISCP devices
+        if "eISCP" not in discovery_info.ssdp_st:
+            return self.async_abort(reason="not_eiscp_device")
+
         if not host:
             return self.async_abort(reason="no_host")
-        
-        # Set unique ID
+
+        # Set unique ID and abort if already configured
         await self.async_set_unique_id(host)
-        self._abort_if_unique_id_configured()
-        
+        self._abort_if_unique_id_configured(updates={CONF_HOST: host})
+
         self._host = host
-        self._name = name or DEFAULT_NAME
-        
-        # Store discovered device
-        self._discovered_devices[host] = {
-            "name": self._name,
-            "host": host,
-        }
-        
-        # Try to connect
+        self._name = name.replace("._eISCP._tcp.local.", "")
+
+        # Store discovered device information
+        self._discovered_devices[host] = {"name": self._name, "host": host}
+
+        # Attempt to connect to verify device is responsive
         result = await self._async_try_connect(host)
-        
         if not result["success"]:
-            _LOGGER.info(
-                "Discovered Onkyo receiver at %s but cannot connect yet",
-                host
-            )
+            _LOGGER.info("Discovered Onkyo receiver at %s, but connection failed.", host)
+            # Allow setup even if connection fails, as receiver may be in standby
         
         return await self.async_step_discovery_confirm()
     
@@ -192,75 +192,40 @@ class OnkyoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """
         Try to connect to the receiver.
         
-        Returns:
-            dict with 'success', 'error', and 'allow_setup' keys
+        Returns a dict with 'success', 'error', and 'allow_setup' keys.
         """
+        receiver = None
         try:
-            # Try to create receiver instance
+            # Create receiver instance and test connection
             receiver = eISCP(host)
+            await self.hass.async_add_executor_job(
+                receiver.command, "system-power", "query"
+            )
+            _LOGGER.info("Successfully connected to Onkyo receiver at %s", host)
+            return {"success": True}
+
+        except (TimeoutError, ConnectionRefusedError, OSError) as err:
+            # These errors are expected if the receiver is off or unavailable
+            _LOGGER.info("Connection to %s failed: %s", host, err)
+            return {"success": False, "error": "cannot_connect", "allow_setup": True}
+
+        except ImportError:
+            # This is a fatal error
+            _LOGGER.error("onkyo-eiscp library not found")
+            return {"success": False, "error": "library_missing", "allow_setup": False}
             
-            try:
-                # Attempt basic connection test with timeout
-                await self.hass.async_add_executor_job(
-                    receiver.command, "system-power", "query"
-                )
-                
-                # Connection successful
-                _LOGGER.info("Successfully connected to Onkyo receiver at %s", host)
-                return {"success": True}
-                
-            except TimeoutError:
-                # Timeout - receiver might be off or in standby
-                _LOGGER.info(
-                    "Connection to %s timed out - receiver may be off",
-                    host
-                )
-                return {
-                    "success": False,
-                    "error": "timeout",
-                    "allow_setup": True  # Allow setup, will connect when on
-                }
-                
-            except ConnectionRefusedError:
-                # Connection refused - check if host is valid
-                _LOGGER.warning("Connection refused by %s", host)
-                return {
-                    "success": False,
-                    "error": "connection_refused",
-                    "allow_setup": True
-                }
-                
-            except OSError as err:
-                # Network error - might be temporary
-                _LOGGER.warning("Network error connecting to %s: %s", host, err)
-                return {
-                    "success": False,
-                    "error": "network_error",
-                    "allow_setup": True
-                }
-                
-            finally:
-                # Clean up connection
+        except Exception as err:
+            # Other unexpected errors
+            _LOGGER.error("Unexpected error connecting to %s: %s", host, err)
+            return {"success": False, "error": "unknown", "allow_setup": False}
+
+        finally:
+            # Ensure the connection is always closed
+            if receiver:
                 try:
                     await self.hass.async_add_executor_job(receiver.disconnect)
                 except Exception:
-                    pass
-                
-        except ImportError:
-            _LOGGER.error("onkyo-eiscp library not found")
-            return {
-                "success": False,
-                "error": "library_missing",
-                "allow_setup": False
-            }
-            
-        except Exception as err:
-            _LOGGER.error("Unexpected error connecting to %s: %s", host, err)
-            return {
-                "success": False,
-                "error": "unknown",
-                "allow_setup": False
-            }
+                    pass  # Ignore errors on disconnect
     
     @staticmethod
     @callback
@@ -282,56 +247,28 @@ class OnkyoOptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Manage the options."""
-        errors: dict[str, str] = {}
-        
         if user_input is not None:
-            # Validate volume settings
-            max_volume = user_input[CONF_RECEIVER_MAX_VOLUME]
-            
-            if max_volume < 1 or max_volume > 200:
-                errors[CONF_RECEIVER_MAX_VOLUME] = "invalid_max_volume"
-            else:
-                # Update the config entry options
-                return self.async_create_entry(title="", data=user_input)
-        
-        # Get current settings
-        current_max_volume = self.config_entry.options.get(
-            CONF_RECEIVER_MAX_VOLUME,
-            DEFAULT_RECEIVER_MAX_VOLUME
-        )
-        
-        current_resolution = self.config_entry.options.get(
-            CONF_VOLUME_RESOLUTION,
-            DEFAULT_VOLUME_RESOLUTION
-        )
-        
-        current_max_vol_pct = self.config_entry.options.get(
-            CONF_MAX_VOLUME,
-            100
-        )
-        
-        current_sources = self.config_entry.options.get(
-            CONF_SOURCES,
-            build_sources_list()
-        )
-        
+            # No validation needed as voluptuous handles it
+            return self.async_create_entry(title="", data=user_input)
+
+        # Define the options schema
         options_schema = vol.Schema({
             vol.Required(
                 CONF_RECEIVER_MAX_VOLUME,
-                default=current_max_volume
+                default=self.config_entry.options.get(
+                    CONF_RECEIVER_MAX_VOLUME, DEFAULT_RECEIVER_MAX_VOLUME
+                ),
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=200)),
             vol.Required(
                 CONF_VOLUME_RESOLUTION,
-                default=current_resolution
+                default=self.config_entry.options.get(
+                    CONF_VOLUME_RESOLUTION, DEFAULT_VOLUME_RESOLUTION
+                ),
             ): vol.In(VOLUME_RESOLUTION_OPTIONS),
             vol.Required(
                 CONF_MAX_VOLUME,
-                default=current_max_vol_pct
+                default=self.config_entry.options.get(CONF_MAX_VOLUME, 100),
             ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
         })
-        
-        return self.async_show_form(
-            step_id="init",
-            data_schema=options_schema,
-            errors=errors,
-        )
+
+        return self.async_show_form(step_id="init", data_schema=options_schema)
