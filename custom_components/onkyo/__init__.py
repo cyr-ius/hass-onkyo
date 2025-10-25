@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 
 from eiscp import eISCP
 
@@ -261,7 +260,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Version 1 to 2: Add volume settings and sources
     if entry.version == 1:
-        from .helpers import build_selected_dict, build_sources_list
+        from .helpers import build_sources_list
         
         new_data = {**entry.data}
         new_options = {**entry.options} if entry.options else {}
