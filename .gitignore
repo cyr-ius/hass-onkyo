@@ -125,4 +125,8 @@ dmypy.json
 ### Python Patch ###
 .venv/
 
+# Home Assistant specific ignores
+custom_components/*/deps/
+.HA_VERSION
+
 # End of https://www.gitignore.io/api/python

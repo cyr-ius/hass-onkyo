@@ -1,229 +1,274 @@
-"""Config flow to configure onkyo component."""
+"""
+Onkyo Config Flow with Enhanced Error Handling
+==============================================
+
+Fixes for configuration issues related to 2024.9+ breaking changes.
+Provides robust setup even when receiver is temporarily unavailable.
+Compatible with HA 2025.10.0
+"""
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping
-from urllib.parse import urlparse
+from typing import Any
 
-import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-from eiscp import eISCP as onkyo_rcv
+from eiscp import eISCP
+
 from homeassistant import config_entries
-from homeassistant.components.persistent_notification import create as notify_create
+import urllib.parse
+
+from homeassistant.components import ssdp
 from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers.service_info.ssdp import (
-    ATTR_UPNP_FRIENDLY_NAME,
-    SsdpServiceInfo,
-)
 
 from .const import (
     CONF_MAX_VOLUME,
     CONF_RECEIVER_MAX_VOLUME,
-    CONF_SOUNDS_MODE,
     CONF_SOURCES,
-    DEFAULT_NAME,
+    CONF_VOLUME_RESOLUTION,
     DEFAULT_RECEIVER_MAX_VOLUME,
-    DEFAULT_SOUNDS_MODE_SELECTED,
-    DEFAULT_SOURCES_SELECTED,
+    DEFAULT_VOLUME_RESOLUTION,
     DOMAIN,
-    SUPPORTED_MAX_VOLUME,
-    UNKNOWN_MODEL,
 )
-from .helpers import build_selected_dict, build_sounds_mode_list, build_sources_list
-
-DEFAULT_SOURCES = build_sources_list()
-DEFAULT_SOUNDS_MODE = build_sounds_mode_list()
-
-DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_HOST): cv.string,
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-        vol.Required(CONF_MAX_VOLUME, default=SUPPORTED_MAX_VOLUME): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=100)
-        ),
-        vol.Required(
-            CONF_RECEIVER_MAX_VOLUME, default=DEFAULT_RECEIVER_MAX_VOLUME
-        ): cv.positive_int,
-        vol.Optional(CONF_SOURCES, default=DEFAULT_SOURCES_SELECTED): cv.multi_select(
-            DEFAULT_SOURCES
-        ),
-        vol.Optional(
-            CONF_SOUNDS_MODE, default=DEFAULT_SOUNDS_MODE_SELECTED
-        ): cv.multi_select(DEFAULT_SOUNDS_MODE),
-    }
-)
+from .helpers import build_sources_list
 
 _LOGGER = logging.getLogger(__name__)
 
+# Volume resolution options (steps from min to max volume)
+VOLUME_RESOLUTION_OPTIONS = [50, 80, 100, 200]
+
+DEFAULT_NAME = "Onkyo Receiver"
+
 
 class OnkyoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Onkyo configuration flow."""
+    """
+    Handle a config flow for Onkyo.
+    
+    Enhanced with better error handling for 2024.9+ and 2025.10+ compatibility.
+    """
 
-    VERSION = 1
-    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_PUSH
+    VERSION = 2
+    
+    def __init__(self) -> None:
+        """Initialize the config flow."""
+        self._discovered_devices: dict[str, Any] = {}
+        self._host: str | None = None
+        self._name: str | None = None
+    
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Handle the initial step - manual configuration."""
+        errors: dict[str, str] = {}
+        
+        if user_input is not None:
+            host = user_input[CONF_HOST]
+            
+            # Set unique ID based on host
+            await self.async_set_unique_id(host)
+            self._abort_if_unique_id_configured()
+            
+            # Try to connect to the receiver
+            result = await self._async_try_connect(host)
+            
+            # Get sources list
+            sources = build_sources_list()
+            
+            # Create entry data
+            entry_data = {
+                CONF_HOST: host,
+                CONF_NAME: user_input.get(CONF_NAME, DEFAULT_NAME),
+            }
+            
+            # Create options with defaults
+            entry_options = {
+                CONF_RECEIVER_MAX_VOLUME: user_input.get(
+                    CONF_RECEIVER_MAX_VOLUME, DEFAULT_RECEIVER_MAX_VOLUME
+                ),
+                CONF_VOLUME_RESOLUTION: DEFAULT_VOLUME_RESOLUTION,
+                CONF_MAX_VOLUME: 100,
+                CONF_SOURCES: sources,
+            }
+            
+            if result["success"] or result.get("allow_setup", False):
+                if not result["success"]:
+                    _LOGGER.warning(
+                        "Could not verify connection to %s, but allowing setup. "
+                        "Error: %s",
+                        host,
+                        result.get("error")
+                    )
+                
+                # Create entry with options
+                return self.async_create_entry(
+                    title=user_input.get(CONF_NAME, DEFAULT_NAME),
+                    data=entry_data,
+                    options=entry_options,
+                )
+            else:
+                # Hard failure - invalid host or other issue
+                errors["base"] = result.get("error", "unknown")
+        
+        # Show the form
+        data_schema = vol.Schema({
+            vol.Required(CONF_HOST): str,
+            vol.Optional(CONF_NAME, default=DEFAULT_NAME): str,
+            vol.Optional(
+                CONF_RECEIVER_MAX_VOLUME,
+                default=DEFAULT_RECEIVER_MAX_VOLUME
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=200)),
+        })
+        
+        return self.async_show_form(
+            step_id="user",
+            data_schema=data_schema,
+            errors=errors,
+        )
+    
+    async def async_step_ssdp(self, discovery_info: ssdp.SsdpServiceInfo) -> FlowResult:
+        """Handle SSDP discovery."""
+        # Extract host and name from discovery info
+        host = urllib.parse.urlparse(discovery_info.ssdp_location).hostname
+        name = discovery_info.upnp.get("friendlyName", DEFAULT_NAME)
 
-    def __init__(self):
-        """Initialize."""
-        self.is_imported = False
+        # Filter out non-eISCP devices
+        if "eISCP" not in discovery_info.ssdp_st:
+            return self.async_abort(reason="not_eiscp_device")
 
+        if not host:
+            return self.async_abort(reason="no_host")
+
+        # Set unique ID and abort if already configured
+        await self.async_set_unique_id(host)
+        self._abort_if_unique_id_configured(updates={CONF_HOST: host})
+
+        self._host = host
+        self._name = name.replace("._eISCP._tcp.local.", "")
+
+        # Store discovered device information
+        self._discovered_devices[host] = {"name": self._name, "host": host}
+
+        # Attempt to connect to verify device is responsive
+        result = await self._async_try_connect(host)
+        if not result["success"]:
+            _LOGGER.info("Discovered Onkyo receiver at %s, but connection failed.", host)
+            # Allow setup even if connection fails, as receiver may be in standby
+        
+        return await self.async_step_discovery_confirm()
+    
+    async def async_step_discovery_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Confirm discovery."""
+        if user_input is not None:
+            # Get sources list
+            sources = build_sources_list()
+            
+            return self.async_create_entry(
+                title=self._name,
+                data={
+                    CONF_HOST: self._host,
+                    CONF_NAME: self._name,
+                },
+                options={
+                    CONF_RECEIVER_MAX_VOLUME: DEFAULT_RECEIVER_MAX_VOLUME,
+                    CONF_VOLUME_RESOLUTION: DEFAULT_VOLUME_RESOLUTION,
+                    CONF_MAX_VOLUME: 100,
+                    CONF_SOURCES: sources,
+                },
+            )
+        
+        return self.async_show_form(
+            step_id="discovery_confirm",
+            description_placeholders={
+                "name": self._name,
+                "host": self._host,
+            },
+        )
+    
+    async def _async_try_connect(self, host: str) -> dict[str, Any]:
+        """
+        Try to connect to the receiver.
+        
+        Returns a dict with 'success', 'error', and 'allow_setup' keys.
+        """
+        receiver = None
+        try:
+            # Create receiver instance and test connection
+            receiver = eISCP(host)
+            await self.hass.async_add_executor_job(
+                receiver.command, "system-power", "query"
+            )
+            _LOGGER.info("Successfully connected to Onkyo receiver at %s", host)
+            return {"success": True}
+
+        except (TimeoutError, ConnectionRefusedError, OSError) as err:
+            # These errors are expected if the receiver is off or unavailable
+            _LOGGER.info("Connection to %s failed: %s", host, err)
+            return {"success": False, "error": "cannot_connect", "allow_setup": True}
+
+        except ImportError:
+            # This is a fatal error
+            _LOGGER.error("onkyo-eiscp library not found")
+            return {"success": False, "error": "library_missing", "allow_setup": False}
+            
+        except Exception as err:
+            # Other unexpected errors
+            _LOGGER.error("Unexpected error connecting to %s: %s", host, err)
+            return {"success": False, "error": "unknown", "allow_setup": False}
+
+        finally:
+            # Ensure the connection is always closed
+            if receiver:
+                try:
+                    await self.hass.async_add_executor_job(receiver.disconnect)
+                except Exception:
+                    pass  # Ignore errors on disconnect
+    
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: config_entries.ConfigEntry):
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
-        return OptionsFlowHandler()
-
-    async def async_step_import(self, import_info) -> FlowResult:
-        """Set the config entry up from yaml."""
-        self.is_imported = True
-        return await self.async_step_user(import_info)
-
-    async def async_step_user(
-        self, user_input: Mapping[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle a flow initialized by the user."""
-        errors = {}
-        if user_input:
-            host = user_input[CONF_HOST]
-            try:
-                receiver = onkyo_rcv(host)
-
-                await self.async_set_unique_id(receiver.identifier)
-                self._abort_if_unique_id_configured()
-
-                if receiver.model_name == UNKNOWN_MODEL:
-                    errors["base"] = "receiver_unknown"
-
-            except OSError as error:
-                _LOGGER.error("Unable to connect to receiver at %s (%s)", host, error)
-                errors["base"] = "cannot_connect"
-            else:
-                if self.is_imported:
-                    notify_create(
-                        self.hass,
-                        "The import of the Onkyo configuration was successful. \
-                        Please remove the platform from the YAML configuration file",
-                        "Onkyo Import",
-                    )
-                srcs_list = build_selected_dict(
-                    sources=user_input.pop(CONF_SOURCES, [])
-                )
-                snds_list = build_selected_dict(
-                    sounds=user_input.pop(CONF_SOUNDS_MODE, [])
-                )
-
-                return self.async_create_entry(
-                    title=user_input[CONF_NAME],
-                    data=user_input,
-                    options={
-                        CONF_SOURCES: srcs_list,
-                        CONF_SOUNDS_MODE: snds_list,
-                        CONF_MAX_VOLUME: user_input[CONF_MAX_VOLUME],
-                        CONF_RECEIVER_MAX_VOLUME: user_input[CONF_RECEIVER_MAX_VOLUME],
-                    },
-                )
-        return self.async_show_form(
-            step_id="user", data_schema=DATA_SCHEMA, errors=errors
-        )
-
-    async def async_step_ssdp(self, discovery_info: SsdpServiceInfo) -> FlowResult:
-        """Handle a discovered device."""
-        hostname = urlparse(discovery_info.ssdp_location).hostname
-        friendly_name = discovery_info.upnp[ATTR_UPNP_FRIENDLY_NAME]
-
-        self._async_abort_entries_match({CONF_HOST: hostname})
-        user_input = {
-            CONF_HOST: hostname,
-            CONF_NAME: friendly_name,
-        }
-        return await self.async_step_user(user_input)
+        return OnkyoOptionsFlowHandler(config_entry)
 
 
-class OptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options."""
-
-    def __init__(self):
+class OnkyoOptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle Onkyo options."""
+    
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
-        self._other_options = None
-
+        self.config_entry = config_entry
+    
     async def async_step_init(
-        self, user_input: Mapping[str, Any] | None = None
+        self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Select sources."""
-        errors = {}
-
+        """Manage the options."""
         if user_input is not None:
-            if user_input.get(CONF_SOURCES):
-                sources_selected = user_input.pop(CONF_SOURCES)
-                user_input.update(
-                    {
-                        CONF_SOUNDS_MODE: build_selected_dict(
-                            sounds=user_input.get(CONF_SOUNDS_MODE, [])
-                        )
-                    }
-                )
-                self._other_options = user_input
-                return await self.async_step_custom_sources(
-                    sources_selected=sources_selected
-                )
-            return self.async_create_entry(
-                title="", data={CONF_SOURCES: {}, CONF_SOUNDS_MODE: {}}
-            )
+            # No validation needed as voluptuous handles it
+            return self.async_create_entry(title="", data=user_input)
 
-        for key, value in self.config_entry.options.get(CONF_SOURCES, {}).items():
-            DEFAULT_SOURCES[key] = value
-
-        select_sources = list(self.config_entry.options.get(CONF_SOURCES, {}).keys())
-        select_sounds_mode = list(
-            self.config_entry.options.get(CONF_SOUNDS_MODE, {}).keys()
-        )
-        supported_max_volume = self.config_entry.options.get(
-            CONF_MAX_VOLUME, SUPPORTED_MAX_VOLUME
-        )
-        default_receiver_max_volume = self.config_entry.options.get(
-            CONF_RECEIVER_MAX_VOLUME, DEFAULT_RECEIVER_MAX_VOLUME
-        )
-        sources_schema = vol.Schema(
-            {
-                vol.Required(CONF_MAX_VOLUME, default=supported_max_volume): vol.All(
-                    vol.Coerce(int), vol.Range(min=1, max=100)
+        # Define the options schema
+        options_schema = vol.Schema({
+            vol.Required(
+                CONF_RECEIVER_MAX_VOLUME,
+                default=self.config_entry.options.get(
+                    CONF_RECEIVER_MAX_VOLUME, DEFAULT_RECEIVER_MAX_VOLUME
                 ),
-                vol.Required(
-                    CONF_RECEIVER_MAX_VOLUME, default=default_receiver_max_volume
-                ): cv.positive_int,
-                vol.Optional(CONF_SOURCES, default=select_sources): cv.multi_select(
-                    DEFAULT_SOURCES
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=200)),
+            vol.Required(
+                CONF_VOLUME_RESOLUTION,
+                default=self.config_entry.options.get(
+                    CONF_VOLUME_RESOLUTION, DEFAULT_VOLUME_RESOLUTION
                 ),
-                vol.Optional(
-                    CONF_SOUNDS_MODE, default=select_sounds_mode
-                ): cv.multi_select(DEFAULT_SOUNDS_MODE),
-            }
-        )
-        return self.async_show_form(
-            step_id="init", data_schema=sources_schema, errors=errors
-        )
+            ): vol.In(VOLUME_RESOLUTION_OPTIONS),
+            vol.Required(
+                CONF_MAX_VOLUME,
+                default=self.config_entry.options.get(CONF_MAX_VOLUME, 100),
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
+        })
 
-    async def async_step_custom_sources(
-        self,
-        user_input: Mapping[str, Any] | None = None,
-        sources_selected: list[str] | None = None,
-    ) -> FlowResult:
-        """Rename sources."""
-        if user_input is not None:
-            data = {CONF_SOURCES: user_input}
-            data.update(self._other_options)
-            return self.async_create_entry(title="", data=data)
-
-        schema = {}
-        for source in sources_selected:
-            schema.update(
-                {
-                    vol.Required(
-                        source, default=DEFAULT_SOURCES.get(source, source)
-                    ): cv.string
-                }
-            )
-        data_schema = vol.Schema(schema)
-        return self.async_show_form(step_id="custom_sources", data_schema=data_schema)
+        return self.async_show_form(step_id="init", data_schema=options_schema)

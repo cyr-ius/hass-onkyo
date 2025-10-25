@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import timedelta
 import logging
 
+from typing import Any
+
 from eiscp import eISCP as onkyo_rcv
 
 from homeassistant.config_entries import ConfigEntry
@@ -15,14 +17,14 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import (
     ATTR_AUDIO_INFORMATION,
+    ATTR_HDMI_OUTPUT,
     ATTR_PRESET,
     ATTR_VIDEO_INFORMATION,
-    ATTR_VIDEO_OUT,
     CONF_MAX_VOLUME,
     CONF_RECEIVER_MAX_VOLUME,
     CONF_SOURCES,
     DOMAIN,
-    TIMEOUT_MESSAGE,
+    ERROR_TIMEOUT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -70,8 +72,8 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
 
     async def async_fetch_data(self) -> dict:
         """Fetch all data from api."""
-        data = {}
-        attributes = {}
+        data: dict[str, Any] = {}
+        attributes: dict[str, Any] = {}
 
         status = self.receiver.command("system-power query")
         if not status:
@@ -134,7 +136,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
         if not hdmi_out_raw:
             return data
 
-        attributes[ATTR_VIDEO_OUT] = ",".join(hdmi_out_raw[1])
+        attributes[ATTR_HDMI_OUTPUT] = ",".join(hdmi_out_raw[1])
         if hdmi_out_raw[1] == "N/A":
             data.update({"hdmi_out_supported": False})
 
@@ -142,10 +144,10 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
 
         return data
 
-    async def async_fetch_data_zone(self, zone):
+    async def async_fetch_data_zone(self, zone) -> dict:
         """Fetch data zone."""
-        data = {}
-        attributes = {}
+        data: dict[str, Any] = {}
+        attributes: dict[str, Any] = {}
 
         status = self.receiver.command(f"{zone}.power=query")
         if not status:
@@ -166,7 +168,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
             supports_volume = False
 
         if not (volume_raw and mute_raw and current_source_raw):
-            return None
+            return {}
 
         # It's possible for some players to have zones set to HDMI with
         # no sound control. In this case, the string `N/A` is returned.
@@ -259,7 +261,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
             else:
                 _LOGGER.debug("Zone 2 not available")
         except ValueError as error:
-            if str(error) != TIMEOUT_MESSAGE:
+            if str(error) != ERROR_TIMEOUT:
                 raise HomeAssistantError(error) from error
             _LOGGER.debug("Zone 2 timed out, assuming no functionality")
 
@@ -271,7 +273,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
             else:
                 _LOGGER.debug("Zone 3 not available")
         except ValueError as error:
-            if str(error) != TIMEOUT_MESSAGE:
+            if str(error) != ERROR_TIMEOUT:
                 raise HomeAssistantError(error) from error
             _LOGGER.debug("Zone 3 timed out, assuming no functionality")
         except AssertionError:

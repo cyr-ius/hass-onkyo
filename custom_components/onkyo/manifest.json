@@ -3,7 +3,7 @@
   "name": "Onkyo",
   "codeowners": [],
   "config_flow": true,
-  "dependencies": ["persistent_notification"],
+  "dependencies": [],
   "documentation": "https://www.home-assistant.io/integrations/onkyo",
   "iot_class": "local_polling",
   "loggers": ["eiscp"],
@@ -14,5 +14,5 @@
       "deviceType": "urn:schemas-upnp-org:device:MediaRenderer:2"
     }
   ],
-  "version": "1.6.5"
+  "version": "2.0.0"
 }

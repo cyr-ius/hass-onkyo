@@ -1,6 +1,6 @@
 {
-  "name": "Onkyo Reciever",
-  "country": "FR",
-  "homeassistant": "0.109",
+  "name": "Onkyo Reciever Extended",
+  "country": "AU",
+  "homeassistant": "2024.9+",
   "render_readme": true
 }
