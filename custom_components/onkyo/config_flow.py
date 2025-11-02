@@ -29,7 +29,7 @@ from .const import (
     DEFAULT_VOLUME_RESOLUTION,
     DOMAIN,
 )
-from .helpers import build_selected_dict, build_sources_list, build_sounds_mode_list
+from .helpers import build_sources_list
 
 _LOGGER = logging.getLogger(__name__)
 

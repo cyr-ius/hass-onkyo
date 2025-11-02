@@ -9,7 +9,6 @@ from typing import Any
 from eiscp import eISCP
 
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 
 _LOGGER = logging.getLogger(__name__)
 
