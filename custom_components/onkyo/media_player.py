@@ -655,11 +655,11 @@ class OnkyoMediaPlayer(MediaPlayerEntity):
         - Volume resolution (50, 80, 100, or 200 steps)
         - Maximum volume limit
         """
-        from .const import CONF_RECEIVER_MAX_VOLUME, CONF_VOLUME_RESOLUTION
+        from .const import CONF_MAX_VOLUME, CONF_VOLUME_RESOLUTION
         
         max_volume = self._entry.options.get(
-            CONF_RECEIVER_MAX_VOLUME,
-            self._entry.data.get(CONF_RECEIVER_MAX_VOLUME, 100)
+            CONF_MAX_VOLUME,
+            self._entry.data.get(CONF_MAX_VOLUME, 100)
         )
         
         resolution = self._entry.options.get(
@@ -679,11 +679,11 @@ class OnkyoMediaPlayer(MediaPlayerEntity):
         - Volume resolution
         - Maximum volume limit
         """
-        from .const import CONF_RECEIVER_MAX_VOLUME, CONF_VOLUME_RESOLUTION
+        from .const import CONF_MAX_VOLUME, CONF_VOLUME_RESOLUTION
         
         max_volume = self._entry.options.get(
-            CONF_RECEIVER_MAX_VOLUME,
-            self._entry.data.get(CONF_RECEIVER_MAX_VOLUME, 100)
+            CONF_MAX_VOLUME,
+            self._entry.data.get(CONF_MAX_VOLUME, 100)
         )
         
         resolution = self._entry.options.get(
