@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 import logging
+from datetime import timedelta
 
 from eiscp import eISCP as onkyo_rcv
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant
