@@ -1,0 +1,35 @@
+[project]
+name = "hass-onkyo-component"
+version = "0.0.0"
+description = "Development environment for the Onkyo Home Assistant custom component"
+requires-python = ">=3.14.2"
+dependencies = []
+
+[tool.setuptools]
+# Non-packageable project (see [tool.uv] package = false):
+# disable automatic discovery, which makes node_modules irrelevant.
+packages = []
+
+[dependency-groups]
+lint = ["prek"]
+dev = [
+  "onkyo-eiscp==1.2.7",
+  "homeassistant",
+  {include-group = "lint"},
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+fix = true
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.codespell]
+ignore-words-list = "hass"
+skip = "./.*,*.csv,*.json,uv.lock"
+quiet-level = 2
