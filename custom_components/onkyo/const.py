@@ -1,4 +1,5 @@
 """The onkyo constants."""
+
 DOMAIN = "onkyo"
 
 ATTR_AUDIO_INFORMATION = "audio_information"

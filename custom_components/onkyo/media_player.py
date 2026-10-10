@@ -165,7 +165,7 @@ class OnkyoDevice(CoordinatorEntity, MediaPlayerEntity):
             result = await self.hass.async_add_executor_job(
                 self.receiver.command, command
             )
-        except (ValueError, OSError, AttributeError, AssertionError):
+        except ValueError, OSError, AttributeError, AssertionError:
             if self.receiver.command_socket:
                 self.receiver.command_socket = None
                 _LOGGER.debug("Resetting connection to %s", self.name)
@@ -183,8 +183,9 @@ class OnkyoDevice(CoordinatorEntity, MediaPlayerEntity):
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, input is range 0..1.
 
-        However full volume on the amp is usually far too loud so allow the user to specify the upper range
-        with CONF_MAX_VOLUME.  we change as per max_volume set by user. This means that if max volume is 80 then full
+        However full volume on the amp is usually far too loud so allow the user
+        to specify the upper range with CONF_MAX_VOLUME. We change as per
+        max_volume set by user. This means that if max volume is 80 then full
         volume in HA will give 80% volume on the receiver. Then we convert
         that to the correct scale for the receiver.
         """
@@ -262,15 +263,15 @@ class OnkyoDeviceZone(OnkyoDevice):
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, input is range 0..1.
 
-        However full volume on the amp is usually far too loud so allow the user to specify the upper range
-        with CONF_MAX_VOLUME.  we change as per max_volume set by user. This means that if max volume is 80 then full
+        However full volume on the amp is usually far too loud so allow the user
+        to specify the upper range with CONF_MAX_VOLUME. We change as per
+        max_volume set by user. This means that if max volume is 80 then full
         volume in HA will give 80% volume on the receiver. Then we convert
         that to the correct scale for the receiver.
         """
         # HA_VOL * (MAX VOL / 100) * MAX_RECEIVER_VOL
-        await self.async_command(
-            f"{self.zone}.volume={int(volume * (self.max_volume / 100) * self.receiver_max_volume)}"
-        )
+        level = int(volume * (self.max_volume / 100) * self.receiver_max_volume)
+        await self.async_command(f"{self.zone}.volume={level}")
 
     async def async_volume_up(self) -> None:
         """Increase volume by 1 step."""
