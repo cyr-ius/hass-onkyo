@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import timedelta
 
 from eiscp import eISCP as onkyo_rcv
@@ -49,26 +50,36 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
         self.receiver_max_volume = config_entry.options[CONF_RECEIVER_MAX_VOLUME]
         self.max_volume = config_entry.options[CONF_MAX_VOLUME]
         self.receiver = onkyo_rcv(self.config_entry.data[CONF_HOST])
+        # eiscp is blocking and not thread-safe: serialize socket access between
+        # the polling job and the commands sent by the entities.
+        self._lock = threading.Lock()
+        self._zones: list[str] | None = None
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=SCAN_INTERVAL)
 
     async def _async_update_data(self) -> dict:
-        data = {}
         try:
-            main = await self.async_fetch_data()
-            data.update({"main": main})
-
-            for zone in self._determine_zones(self.receiver):
-                other = await self.async_fetch_data_zone(zone)
-                data.update({zone: other})
-
+            return await self.hass.async_add_executor_job(self._fetch_all)
         except Exception as error:
             _LOGGER.debug(error)
             raise UpdateFailed from error
-        else:
+
+    def send_command(self, command: str):
+        """Send a command to the receiver (blocking I/O, run in executor)."""
+        with self._lock:
+            return self.receiver.command(command)
+
+    def _fetch_all(self) -> dict:
+        """Fetch the state of every zone (blocking I/O, run in executor)."""
+        with self._lock:
+            data = {"main": self._fetch_data()}
+            if self._zones is None:
+                self._zones = self._determine_zones(self.receiver)
+            for zone in self._zones:
+                data[zone] = self._fetch_data_zone(zone)
             return data
 
-    async def async_fetch_data(self) -> dict:
-        """Fetch all data from api."""
+    def _fetch_data(self) -> dict:
+        """Fetch main zone data."""
         data = {}
         attributes = {}
 
@@ -141,7 +152,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
 
         return data
 
-    async def async_fetch_data_zone(self, zone):
+    def _fetch_data_zone(self, zone) -> dict:
         """Fetch data zone."""
         data = {}
         attributes = {}
@@ -165,7 +176,7 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
             supports_volume = False
 
         if not (volume_raw and mute_raw and current_source_raw):
-            return None
+            return data
 
         # It's possible for some players to have zones set to HDMI with
         # no sound control. In this case, the string `N/A` is returned.

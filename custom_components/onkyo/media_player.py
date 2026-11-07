@@ -11,9 +11,9 @@ from homeassistant.components.media_player import (
     MediaPlayerEntityFeature,
     MediaType,
 )
-from homeassistant.const import ATTR_ENTITY_ID, STATE_OFF
-from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import config_validation as cv
+from homeassistant.const import STATE_OFF
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
@@ -51,12 +51,9 @@ SUPPORT_ONKYO = (
 )
 
 
-ONKYO_SELECT_OUTPUT_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
-        vol.Required(ATTR_HDMI_OUTPUT): vol.In(ACCEPTED_VALUES),
-    }
-)
+ONKYO_SELECT_OUTPUT_SCHEMA = {
+    vol.Required(ATTR_HDMI_OUTPUT): vol.In(ACCEPTED_VALUES),
+}
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,17 +72,13 @@ async def async_setup_entry(
         for key in coordinator.data
     ]
 
-    async def async_service_handler(service: ServiceCall) -> None:
-        """Handle for services."""
-        for device in entities:
-            if device.entity_id in service.data.get(ATTR_ENTITY_ID, []):
-                device.select_output(service.data.get(ATTR_HDMI_OUTPUT))
-
-    hass.services.async_register(
-        DOMAIN,
+    # Entity service: targets the entities of every config entry, not only the
+    # entities of the last entry set up.
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
         SERVICE_SELECT_HDMI_OUTPUT,
-        async_service_handler,
-        schema=ONKYO_SELECT_OUTPUT_SCHEMA,
+        ONKYO_SELECT_OUTPUT_SCHEMA,
+        "async_select_output",
     )
 
     async_add_entities(entities, True)
@@ -163,7 +156,7 @@ class OnkyoDevice(CoordinatorEntity, MediaPlayerEntity):
         """Run an eiscp command and catch connection errors."""
         try:
             result = await self.hass.async_add_executor_job(
-                self.receiver.command, command
+                self.coordinator.send_command, command
             )
         except ValueError, OSError, AttributeError, AssertionError:
             if self.receiver.command_socket:
@@ -235,14 +228,14 @@ class OnkyoDevice(CoordinatorEntity, MediaPlayerEntity):
     ) -> None:
         """Play radio station by preset number."""
         reverse_sources = reverse_mapping(self.sources)
-        current_source = self.coordinator.data.get("current_source")
-        source = reverse_sources[current_source]
+        current_source = self.coordinator.data[self.zone].get("current_source")
+        source = reverse_sources.get(current_source)
         if media_type.lower() == "radio" and source in DEFAULT_PLAYABLE_SOURCES:
             await self.async_command(f"preset {media_id}")
 
-    async def async_select_output(self, output: str) -> None:
+    async def async_select_output(self, hdmi_output: str) -> None:
         """Set hdmi-out."""
-        await self.async_command(f"hdmi-output-selector={output}")
+        await self.async_command(f"hdmi-output-selector={hdmi_output}")
 
 
 class OnkyoDeviceZone(OnkyoDevice):

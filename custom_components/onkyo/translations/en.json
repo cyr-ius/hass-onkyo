@@ -13,9 +13,19 @@
           "sources": "Sources",
           "sounds_mode": "Sounds mode"
         }
+      },
+      "discovery_confirm": {
+        "title": "Discovered Onkyo receiver",
+        "description": "Do you want to add the Onkyo receiver {name} ({host})?"
       }
     },
     "error": {
+      "cannot_connect": "Can not connect",
+      "receiver_unknown": "Onkyo receiver unknown"
+    },
+    "flow_title": "{name}",
+    "abort": {
+      "already_configured": "Device is already configured",
       "cannot_connect": "Can not connect",
       "receiver_unknown": "Onkyo receiver unknown"
     }
