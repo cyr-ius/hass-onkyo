@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   hacs:
     name: HACS Action
@@ -11,9 +14,11 @@ jobs:
     runs-on: "ubuntu-latest"
     steps:
       - name: 📥 Checkout the repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: HACS Action
-        uses: "hacs/action@main"
+        uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main (2026-06-08)
         with:
           category: "integration"

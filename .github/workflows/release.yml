@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - "*.*.*"
+
+permissions: {}
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -11,22 +14,33 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Generate changelog
         id: changelog
-        uses: metcalfc/changelog-generator@v5.0.1
+        uses: metcalfc/changelog-generator@031a6408a9ad7fa6dcda49b7222ab2b54110a680 # v5.0.1
         with:
           mytoken: ${{ secrets.GITHUB_TOKEN }}
 
+      # Commit messages are untrusted: pass them through env and a file, never
+      # interpolate them into the script.
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@latest
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: ${{ github.ref }}
-          body: ${{ steps.changelog.outputs.changelog }}
-          draft: false
-          prerelease: ${{ contains(github.ref_name,'-') }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          CHANGELOG: ${{ steps.changelog.outputs.changelog }}
+        run: |
+          notes="$RUNNER_TEMP/release-notes.md"
+          printf '%s\n' "$CHANGELOG" > "$notes"
+          prerelease=()
+          if [[ "$TAG" == *-* ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$TAG" \
+            --notes-file "$notes" \
+            "${prerelease[@]}"
