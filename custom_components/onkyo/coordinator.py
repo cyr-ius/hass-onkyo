@@ -54,6 +54,9 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
         # the polling job and the commands sent by the entities.
         self._lock = threading.Lock()
         self._zones: list[str] | None = None
+        # The config flow stores the receiver identifier as the entry unique_id.
+        self.identifier: str = config_entry.unique_id or config_entry.entry_id
+        self.model_name: str | None = None
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=SCAN_INTERVAL)
 
     async def _async_update_data(self) -> dict:
@@ -71,6 +74,9 @@ class OnkyoUpdateCoordinator(DataUpdateCoordinator):
     def _fetch_all(self) -> dict:
         """Fetch the state of every zone (blocking I/O, run in executor)."""
         with self._lock:
+            if self.model_name is None:
+                # eiscp's info property does a UDP round trip: keep it off the loop.
+                self.model_name = (self.receiver.info or {}).get("model_name")
             data = {"main": self._fetch_data()}
             if self._zones is None:
                 self._zones = self._determine_zones(self.receiver)

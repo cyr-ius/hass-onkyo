@@ -95,14 +95,14 @@ class OnkyoDevice(CoordinatorEntity, MediaPlayerEntity):
         super().__init__(coordinator)
         self.coordinator = coordinator
         self.receiver = coordinator.receiver
-        receiver_id = coordinator.receiver.info["identifier"]
+        receiver_id = coordinator.identifier
         self.zone = zone
         self._attr_name = zone
         self._attr_unique_id = f"{receiver_id}_{zone}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, receiver_id)},
             "manufacturer": "Onkyo",
-            "model": coordinator.receiver.model_name,
+            "model": coordinator.model_name,
             "name": f"{DEFAULT_NAME} ({receiver_id})",
         }
         self._attr_extra_state_attributes = coordinator.data[self.zone].get(
